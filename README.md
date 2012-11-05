@@ -10,6 +10,7 @@ Twitter user-timeline package for FuelPHP which uses OAuth. This package allows 
 
 # How to use 
 In your controller just paste the following and insert the handle of the user you wish to grab tweets from (don't include the @ symbol), and the number of tweets you wish to have returned, the default is 5. 
+
 $tweets = Twitter::fetchTweets("USERNAME", 5);
 
 # Problems 
