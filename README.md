@@ -1,4 +1,4 @@
-Twitter-User-timeline-for-FuelPHP
+Twitter User Timeline for FuelPHP using OAuth
 =================================
 
 Twitter user-timeline package for FuelPHP which uses OAuth. This package allows you to pull an array of a users latest tweets.
