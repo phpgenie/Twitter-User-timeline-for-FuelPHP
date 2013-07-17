@@ -13,7 +13,7 @@
  
 class Twitter {
 
-    public function buildBaseString($baseURI, $method, $params)
+    public static function buildBaseString($baseURI, $method, $params)
 	{
 	    $r = array(); 
 	    ksort($params); 
@@ -24,7 +24,7 @@ class Twitter {
 	    return $method."&" . rawurlencode($baseURI) . '&' . rawurlencode(implode('&', $r)); //return complete base string
 	}
 	
-	public function buildAuthorizationHeader($oauth)
+	public static function buildAuthorizationHeader($oauth)
 	{
 	    $r = 'Authorization: OAuth ';
 	    $values = array();
@@ -35,39 +35,92 @@ class Twitter {
 	    return $r; 
 	}
 	
-	public function fetchTweets($handle, $limit = 5) {
+	public static function fetchTweets($handle, $limit = 5) {
 	
-		$url = "http://api.twitter.com/1/statuses/user_timeline.json?screen_name=".$handle."&count=".$limit;
-		
-		$oauth_access_token =  \Config::get('twitter.oauth_consumer_key');
-		$oauth_access_token_secret = \Config::get('twitter.oauth_token');;
+		$oauth_access_token =  \Config::get('twitter.access_token');
+		$oauth_access_token_secret = \Config::get('twitter.access_token_secret');;
 		$consumer_key = \Config::get('twitter.consumer_key');;
 		$consumer_secret = \Config::get('twitter.consumer_secret');;
 		
-		$oauth = array( 'oauth_consumer_key' => $consumer_key,
-		                'oauth_nonce' => time(),
-		                'oauth_signature_method' => 'HMAC-SHA1',
-		                'oauth_token' => $oauth_access_token,
-		                'oauth_timestamp' => time(),
-		                'oauth_version' => '1.0');
-		
-		$base_info = Twitter::buildBaseString($url, 'GET', $oauth);
-		$composite_key = rawurlencode($consumer_secret) . '&' . rawurlencode($oauth_access_token_secret);
-		$oauth_signature = base64_encode(hash_hmac('sha1', $base_info, $composite_key, true));
-		$oauth['oauth_signature'] = $oauth_signature;
-		
-		$header = array(Twitter::buildAuthorizationHeader($oauth), 'Expect:');
-		$options = array( CURLOPT_HTTPHEADER => $header,
+		\Log::error('Access Token: ' . $oauth_access_token);
+		\Log::error('Access Token Secret: ' . $oauth_access_token_secret);
+		\Log::error('Consumer Secret: ' . $consumer_secret);
+		\Log::error('Consumer Key: ' . $consumer_key);
+
+		$host = 'api.twitter.com';
+		$method = 'GET';
+		$path = '/1.1/statuses/user_timeline.json'; // api call path
+
+		$query = array( // query parameters
+		    'screen_name' => $handle,
+		    'count' => $limit
+		);
+
+		$oauth = array(
+		    'oauth_consumer_key' => $consumer_key,
+		    'oauth_token' => $oauth_access_token,
+		    'oauth_nonce' => (string)mt_rand(), // a stronger nonce is recommended
+		    'oauth_timestamp' => time(),
+		    'oauth_signature_method' => 'HMAC-SHA1',
+		    'oauth_version' => '1.0'
+		);
+
+		$oauth = array_map("rawurlencode", $oauth); // must be encoded before sorting
+		$query = array_map("rawurlencode", $query);
+
+		$arr = array_merge($oauth, $query); // combine the values THEN sort
+
+		asort($arr); // secondary sort (value)
+		ksort($arr); // primary sort (key)
+
+		// http_build_query automatically encodes, but our parameters
+		// are already encoded, and must be by this point, so we undo
+		// the encoding step
+		$querystring = urldecode(http_build_query($arr, '', '&'));
+
+		$url = "https://$host$path";
+
+		// mash everything together for the text to hash
+		$base_string = $method."&".rawurlencode($url)."&".rawurlencode($querystring);
+
+		// same with the key
+		$key = rawurlencode($consumer_secret)."&".rawurlencode($oauth_access_token_secret);
+
+		// generate the hash
+		$signature = rawurlencode(base64_encode(hash_hmac('sha1', $base_string, $key, true)));
+
+		// this time we're using a normal GET query, and we're only encoding the query params
+		// (without the oauth params)
+		$url .= "?".http_build_query($query);
+		$url=str_replace("&amp;","&",$url); //Patch by @Frewuill
+
+		$oauth['oauth_signature'] = $signature; // don't want to abandon all that work!
+		ksort($oauth); // probably not necessary, but twitter's demo does it
+
+		// also not necessary, but twitter's demo does this too
+		function add_quotes($str) { 
+			return '"'.$str.'"'; 
+		}
+		$oauth = array_map("add_quotes", $oauth);
+
+		// this is the full value of the Authorization line
+		$auth = "OAuth " . urldecode(http_build_query($oauth, '', ', '));
+
+		// if you're doing post, you need to skip the GET building above
+		// and instead supply query parameters to CURLOPT_POSTFIELDS
+		$options = array( CURLOPT_HTTPHEADER => array("Authorization: $auth"),
+		                  //CURLOPT_POSTFIELDS => $postfields,
 		                  CURLOPT_HEADER => false,
 		                  CURLOPT_URL => $url,
 		                  CURLOPT_RETURNTRANSFER => true,
 		                  CURLOPT_SSL_VERIFYPEER => false);
-		
+
+		// do our business
 		$feed = curl_init();
 		curl_setopt_array($feed, $options);
 		$json = curl_exec($feed);
 		curl_close($feed);
-		
+
 		$twitter_data = json_decode($json, true);
 		
 		return $twitter_data;
